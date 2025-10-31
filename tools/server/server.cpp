@@ -4357,23 +4357,6 @@ struct server_context {
     }
 };
 
-auto log_server_request_lambda = [&](const httplib::Request & req, const httplib::Response & res) {
-    // skip GH copilot requests when using default port
-    if (req.path == "/v1/health") {
-        return;
-    }
-
-    // reminder: this function is not covered by httplib's exception handler; if someone does more complicated stuff, think about wrapping it in try-catch
-
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
-
-    SRV_INF("request: %s %s %s %d, cost_time: %.2f ms\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status, elapsed.count());
-
-    SRV_DBG("request:  %s\n", req.body.c_str());
-    SRV_DBG("response: %s\n", res.body.c_str());
-};
-
 std::function<void(int)> shutdown_handler;
 std::atomic_flag is_terminating = ATOMIC_FLAG_INIT;
 
@@ -4431,7 +4414,24 @@ int main(int argc, char ** argv) {
     std::atomic<server_state> state{SERVER_STATE_LOADING_MODEL};
 
     svr->set_default_headers({{"Server", "llama.cpp"}});
-    svr->set_logger(log_server_request);
+
+    auto log_server_request_lambda = [&](const httplib::Request & req, const httplib::Response & res) {
+        // skip GH copilot requests when using default port
+        if (req.path == "/v1/health") {
+            return;
+        }
+
+        // reminder: this function is not covered by httplib's exception handler; if someone does more complicated stuff, think about wrapping it in try-catch
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
+
+        SRV_INF("request: %s %s %s %d, cost_time: %.2f ms\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status, elapsed.count());
+
+        SRV_DBG("request:  %s\n", req.body.c_str());
+        SRV_DBG("response: %s\n", res.body.c_str());
+    };
+    svr->set_logger(log_server_request_lambda);
 
     auto format_unified_response = [&](int status_code, const std::string& status_msg, const json& response_data) {
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -4446,7 +4446,7 @@ int main(int argc, char ** argv) {
 
     auto res_error = [&](httplib::Response & res, const json & error_data) {
         int status_code = json_value(error_data, "code", 500);
-        std::string status_msg = json_value(error_data, "message", "Unknown Error");
+        std::string status_msg = json_value<std::string>(error_data, "message", "Unknown Error");
         json final_response = format_unified_response(status_code, status_msg, error_data);
         res.set_content(safe_json_to_str(final_response), MIMETYPE_JSON);
         res.status = status_code;
@@ -4564,7 +4564,7 @@ int main(int argc, char ** argv) {
     };
 
     // register server middlewares
-    svr->set_pre_routing_handler([&middleware_validate_api_key, &middleware_server_state](const httplib::Request & req, httplib::Response & res) {
+    svr->set_pre_routing_handler([&middleware_validate_api_key, &middleware_server_state, &ctx_server](const httplib::Request & req, httplib::Response & res) {
         // Set the start time for this request
         ctx_server.request_start_time = std::chrono::high_resolution_clock::now();
 
