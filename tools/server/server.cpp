@@ -2324,6 +2324,8 @@ struct server_context {
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
 
+    std::chrono::high_resolution_clock::time_point request_start_time;
+
     // multimodal
     mtmd_context * mctx = nullptr;
 
@@ -4355,7 +4357,7 @@ struct server_context {
     }
 };
 
-static void log_server_request(const httplib::Request & req, const httplib::Response & res) {
+auto log_server_request_lambda = [&](const httplib::Request & req, const httplib::Response & res) {
     // skip GH copilot requests when using default port
     if (req.path == "/v1/health") {
         return;
@@ -4363,11 +4365,14 @@ static void log_server_request(const httplib::Request & req, const httplib::Resp
 
     // reminder: this function is not covered by httplib's exception handler; if someone does more complicated stuff, think about wrapping it in try-catch
 
-    SRV_INF("request: %s %s %s %d\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
+
+    SRV_INF("request: %s %s %s %d, cost_time: %.2f ms\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status, elapsed.count());
 
     SRV_DBG("request:  %s\n", req.body.c_str());
     SRV_DBG("response: %s\n", res.body.c_str());
-}
+};
 
 std::function<void(int)> shutdown_handler;
 std::atomic_flag is_terminating = ATOMIC_FLAG_INIT;
@@ -4428,14 +4433,28 @@ int main(int argc, char ** argv) {
     svr->set_default_headers({{"Server", "llama.cpp"}});
     svr->set_logger(log_server_request);
 
-    auto res_error = [](httplib::Response & res, const json & error_data) {
-        json final_response {{"error", error_data}};
-        res.set_content(safe_json_to_str(final_response), MIMETYPE_JSON);
-        res.status = json_value(error_data, "code", 500);
+    auto format_unified_response = [&](int status_code, const std::string& status_msg, const json& response_data) {
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
+        json unified_response;
+        unified_response["status_code"] = status_code;
+        unified_response["cost_time"] = elapsed.count();
+        unified_response["status_msg"] = status_msg;
+        unified_response["response"] = response_data;
+        return unified_response;
     };
 
-    auto res_ok = [](httplib::Response & res, const json & data) {
-        res.set_content(safe_json_to_str(data), MIMETYPE_JSON);
+    auto res_error = [&](httplib::Response & res, const json & error_data) {
+        int status_code = json_value(error_data, "code", 500);
+        std::string status_msg = json_value(error_data, "message", "Unknown Error");
+        json final_response = format_unified_response(status_code, status_msg, error_data);
+        res.set_content(safe_json_to_str(final_response), MIMETYPE_JSON);
+        res.status = status_code;
+    };
+
+    auto res_ok = [&](httplib::Response & res, const json & data) {
+        json final_response = format_unified_response(200, "Success", data);
+        res.set_content(safe_json_to_str(final_response), MIMETYPE_JSON);
         res.status = 200;
     };
 
@@ -4546,6 +4565,9 @@ int main(int argc, char ** argv) {
 
     // register server middlewares
     svr->set_pre_routing_handler([&middleware_validate_api_key, &middleware_server_state](const httplib::Request & req, httplib::Response & res) {
+        // Set the start time for this request
+        ctx_server.request_start_time = std::chrono::high_resolution_clock::now();
+
         res.set_header("Access-Control-Allow-Origin", req.get_header_value("Origin"));
         // If this is OPTIONS request, skip validation because browsers don't include Authorization header
         if (req.method == "OPTIONS") {
