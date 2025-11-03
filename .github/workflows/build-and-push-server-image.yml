@@ -29,10 +29,10 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}/llama.cpp-server
+        images: ghcr.io/${{ github.repository }}/llama.cpp
         tags: |
-          type=raw,value=latest,enable={{is_default_branch}}
-          type=sha
+          type=raw,value=server-latest,enable={{is_default_branch}}
+          type=raw,value=server-{{sha}}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
