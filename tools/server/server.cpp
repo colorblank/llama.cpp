@@ -4437,7 +4437,7 @@ int main(int argc, char ** argv) {
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
         json unified_response;
-        unified_response["status_code"] = status_code;
+        unified_response["status_code"] = (status_code == 200) ? 0 : status_code;
         unified_response["cost_time"] = elapsed.count();
         unified_response["status_msg"] = status_msg;
         unified_response["response"] = response_data;
