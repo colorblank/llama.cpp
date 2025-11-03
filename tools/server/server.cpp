@@ -23,12 +23,15 @@
 #include <cstddef>
 #include <cinttypes>
 #include <deque>
+#include <iomanip> // For std::put_time
 #include <memory>
 #include <mutex>
 #include <signal.h>
+#include <sstream> // For std::stringstream
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <ctime>   // For std::time_t, std::localtime
 
 using json = nlohmann::ordered_json;
 
@@ -4426,7 +4429,17 @@ int main(int argc, char ** argv) {
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> elapsed = end_time - ctx_server.request_start_time;
 
-        SRV_INF("request: %s %s %s %d, cost_time: %.2f ms\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status, elapsed.count());
+        // 获取当前时间并格式化为人类可读的字符串，精确到毫秒
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        std::time_t current_time = std::chrono::system_clock::to_time_t(now);
+        std::tm * local_time = std::localtime(&current_time);
+
+        std::stringstream ss;
+        ss << std::put_time(local_time, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3) << ms.count();
+        std::string timestamp = ss.str();
+
+        SRV_INF("[%s] request: %s %s %s %d, cost_time: %.2f ms\n", timestamp.c_str(), req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status, elapsed.count());
 
         SRV_DBG("request:  %s\n", req.body.c_str());
         SRV_DBG("response: %s\n", res.body.c_str());
