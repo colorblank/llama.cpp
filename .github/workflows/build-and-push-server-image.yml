@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  build-and-push-cpu:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,21 +25,57 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
+    - name: Extract metadata (tags, labels) for Docker (CPU)
+      id: meta-cpu
       uses: docker/metadata-action@v5
       with:
         images: ghcr.io/${{ github.repository }}/llama.cpp
         tags: |
-          type=raw,value=server-latest,enable={{is_default_branch}}
-          type=raw,value=server-{{sha}}
+          type=raw,value=server-cpu-latest,enable={{is_default_branch}}
+          type=raw,value=server-cpu-{{sha}}
 
-    - name: Build and push Docker image
+    - name: Build and push Docker image (CPU)
       uses: docker/build-push-action@v5
       with:
         context: .
         file: .devops/cpu.Dockerfile
         target: server
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        tags: ${{ steps.meta-cpu.outputs.tags }}
+        labels: ${{ steps.meta-cpu.outputs.labels }}
+
+  build-and-push-gpu:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to the Container registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata (tags, labels) for Docker (GPU)
+      id: meta-gpu
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/llama.cpp
+        tags: |
+          type=raw,value=server-cuda-latest,enable={{is_default_branch}}
+          type=raw,value=server-cuda-{{sha}}
+
+    - name: Build and push Docker image (GPU)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: .devops/cuda.Dockerfile
+        target: server
+        push: true
+        tags: ${{ steps.meta-gpu.outputs.tags }}
+        labels: ${{ steps.meta-gpu.outputs.labels }}
