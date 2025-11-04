@@ -1,7 +1,6 @@
 name: Build on Linux using cross-compiler
 on:
   workflow_dispatch:
-  workflow_call:
 
 jobs:
   ubuntu-24-riscv64-cpu-cross:
